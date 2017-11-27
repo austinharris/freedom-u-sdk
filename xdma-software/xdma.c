@@ -6,10 +6,22 @@
 #include <stdio.h>
 #include <string.h>
 #include <fcntl.h>
+#include <stdbool.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 
+#ifndef DRAM_BASE_ADDR
+#define DRAM_BASE_ADDR 0x80000000
+#endif
+
+#ifndef RESET_BASE_ADDR
+#define RESET_BASE_ADDR 0x800000000
+#endif
+
+#ifndef RESULT_BASE_ADDR
+#define RESULT_BASE_ADDR 0xD0000000
+#endif
 
 static struct option const long_opts[] =
 {
@@ -22,24 +34,12 @@ static struct option const long_opts[] =
 };
 
 void
-dma_access(uint64_t addr, const char* filename, int writeTo)
+dma_access(uint64_t addr, uint64_t size, const char* filename, int writeTo)
 {
-    uint64_t size;
     char *devicename = "/dev/xdma/card0/h2c0";
     int rc;
     char *buffer = NULL;
     char *allocated = NULL;
-
-    if (writeTo) {
-        //calculate size of file
-        struct stat st;
-        stat(filename, &st);
-        size = st.st_size;
-    }
-    else {
-        //default to allowing 1 4KB page of results to read out
-        size = 4096;
-    }
 
     posix_memalign((void **)&allocated, 4096/*alignment*/, size + 4096);
     assert(allocated);
@@ -99,21 +99,36 @@ usage(const char* name)
 }
 
 void
+reset()
+{
+    printf("Resetting Rocket!\n");
+    dma_access(RESET_BASE_ADDR, 1, "/dev/null", false);
+}
+
+
+void
 load(const char* filename)
 {
     printf("Loading %s into Rocket Memory!\n", filename);
-}
+    //calculate size of file
+    struct stat st;
+    stat(filename, &st);
+    uint64_t size = st.st_size;
 
-void
-reset(const char* filename)
-{
-    printf("Resetting and loading %s into Rocket Memory!\n", filename);
+    dma_access(DRAM_BASE_ADDR, size, filename, true);
+    printf("Finished loading %s into Rocket Memory!\n");
+    reset();
 }
 
 void
 read_result(const char* filename)
 {
     printf("Reading result from Rocket memory into  %s !\n", filename);
+
+    uint64_t size = 4096; //default to reading out a full page of results
+
+    dma_access(RESULT_BASE_ADDR, size, filename, false);
+    printf("Finished reading result from Rocket memory into  %s !\n", filename);
 }
 
 int
@@ -153,7 +168,7 @@ main(int argc, char* argv[])
     switch(op)
     {
       case LOAD: load(filename); break;
-      case RESET: reset(filename); break;
+      case RESET: reset(); load(filename); break;
       case RESULT: read_result(filename); break;
       default:
         usage(argv[0]);
