@@ -23,6 +23,9 @@
 #define RESULT_BASE_ADDR 0xD0000000
 #endif
 
+
+static const char *devicename = "/dev/xdma/card0/h2c0";
+
 static struct option const long_opts[] =
 {
     {"load", no_argument, NULL, 'l'},
@@ -36,7 +39,6 @@ static struct option const long_opts[] =
 void
 dma_access(uint64_t addr, uint64_t size, const char* filename, int writeTo)
 {
-    char *devicename = "/dev/xdma/card0/h2c0";
     int rc;
     char *buffer = NULL;
     char *allocated = NULL;
@@ -105,10 +107,28 @@ reset()
     dma_access(RESET_BASE_ADDR, 1, "/dev/null", false);
 }
 
+void
+initResultPage()
+{
+    int fpga_fd = -1;
+    fpga_fd = open(devicename, O_RDWR);
+    assert(fpga_fd >= 0);
+    char buffer[4096];
+    int rc;
+    uint64_t size = 4096;
+
+    printf("Initializing result page!\n");
+
+    rc = write(fpga_fd, buffer, size);
+    assert(rc==size);
+    close(fpga_fd);
+}
+
 
 void
 load(const char* filename)
 {
+    initResultPage();
     printf("Loading %s into Rocket Memory!\n", filename);
     //calculate size of file
     struct stat st;
