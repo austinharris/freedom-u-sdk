@@ -24,7 +24,8 @@
 #endif
 
 
-static const char *devicename = "/dev/xdma/card0/h2c0";
+static const char *writeDevicename = "/dev/xdma/card0/h2c0";
+static const char *readDevicename = "/dev/xdma/card0/c2h0";
 
 static struct option const long_opts[] =
 {
@@ -46,14 +47,13 @@ dma_access(uint64_t addr, uint64_t size, const char* filename, int writeTo)
     posix_memalign((void **)&allocated, 4096/*alignment*/, size + 4096);
     assert(allocated);
     buffer = allocated;
-    printf("host memory buffer = %p\n", buffer);
 
     int file_fd = -1;
     int fpga_fd = -1;
     if (writeTo)
-        fpga_fd = open(devicename, O_RDWR);
+        fpga_fd = open(writeDevicename, O_RDWR);
     else
-        fpga_fd = open(devicename, O_RDWR | O_NONBLOCK);
+        fpga_fd = open(readDevicename, O_RDWR | O_NONBLOCK);
     assert(fpga_fd >= 0);
 
     if (filename) {
@@ -65,7 +65,7 @@ dma_access(uint64_t addr, uint64_t size, const char* filename, int writeTo)
             file_fd = open(filename, O_RDWR | O_CREAT | O_TRUNC | O_SYNC, 0666);
         assert(file_fd >= 0);
     }
-    if (file_fd >= 0) {
+    if (file_fd >= 0 && writeTo) {
         rc = read(file_fd, buffer, size);
         if (rc != size) perror("read(file_fd)");
         assert (rc == size);
@@ -76,6 +76,16 @@ dma_access(uint64_t addr, uint64_t size, const char* filename, int writeTo)
     }
     else {
         rc = read(fpga_fd, buffer, size);
+        if(!filename) {
+            char f[100];
+            int i;
+            for (i = 0; buffer[i] && buffer[i] != '\n'; ++i) {
+                f[i] = buffer[i];
+            }
+            file_fd = open(f, O_RDWR | O_CREAT | O_TRUNC | O_SYNC, 0666);
+            buffer = &buffer[i+1]; 
+            size = strlen(buffer);
+        } 
         if (file_fd >= 0) {
             rc = write(file_fd, buffer, size);
             assert(rc == size);
@@ -104,14 +114,14 @@ void
 reset()
 {
     printf("Resetting Rocket!\n");
-    dma_access(RESET_BASE_ADDR, 1, "/dev/null", false);
+    dma_access(RESET_BASE_ADDR, 1, NULL, false);
 }
 
 void
 initResultPage()
 {
     int fpga_fd = -1;
-    fpga_fd = open(devicename, O_RDWR);
+    fpga_fd = open(writeDevicename, O_RDWR);
     assert(fpga_fd >= 0);
     char buffer[4096];
     int rc;
@@ -128,13 +138,12 @@ initResultPage()
 void
 load(const char* filename)
 {
-    initResultPage();
-    printf("Loading %s into Rocket Memory!\n", filename);
     //calculate size of file
     struct stat st;
     stat(filename, &st);
     uint64_t size = st.st_size;
 
+    printf("Loading %s of size %ull into Rocket Memory!\n", filename, size);
     dma_access(DRAM_BASE_ADDR, size, filename, true);
     printf("Finished loading %s into Rocket Memory!\n");
     reset();
@@ -187,8 +196,8 @@ main(int argc, char* argv[])
 
     switch(op)
     {
-      case LOAD: load(filename); break;
-      case RESET: reset(); load(filename); break;
+      case LOAD: initResultPage(); load(filename); break;
+      case RESET: load(filename); reset(); break;
       case RESULT: read_result(filename); break;
       default:
         usage(argv[0]);

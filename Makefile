@@ -67,6 +67,10 @@ $(buildroot_tar): $(buildroot_srcdir) $(RISCV)/bin/$(target)-gcc
 buildroot-menuconfig: $(buildroot_srcdir)
 	$(MAKE) -C $< O=$(buildroot_wrkdir) menuconfig
 
+.PHONY: buildroot-image
+buildroot-image: $(buildroot_srcdir)
+	$(MAKE) -C $< O=$(buildroot_wrkdir)
+
 $(sysroot_stamp): $(buildroot_tar)
 	mkdir -p $(sysroot)
 	tar -xpf $< -C $(sysroot) --exclude ./dev --exclude ./usr/share/locale
